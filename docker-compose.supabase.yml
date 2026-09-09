@@ -28,7 +28,7 @@ services:
 
   # ── GoTrue (Auth) ─────────────────────────────────────────────────────────
   auth:
-    image: supabase/gotrue:v2.196.0
+    image: supabase/gotrue:v2.197.0
     restart: unless-stopped
     depends_on:
       db:
