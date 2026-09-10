@@ -364,7 +364,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Sende E-Mail
-        uses: dawidd6/action-send-mail@v20
+        uses: dawidd6/action-send-mail@v21
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: 465
