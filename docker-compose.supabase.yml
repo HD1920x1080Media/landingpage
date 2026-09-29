@@ -10,7 +10,7 @@ version: "3.9"
 services:
   # ── PostgreSQL ────────────────────────────────────────────────────────────
   db:
-    image: supabase/postgres:17.11.0.001
+    image: supabase/postgres:17.11.0.002
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
