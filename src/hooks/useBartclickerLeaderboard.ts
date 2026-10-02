@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { isOffline, readCache, writeCache } from '../lib/offlineStore';
 import type { BartclickerLeaderboardEntry } from '../types/bartclicker';
 
 interface LeaderboardRPCEntry {
@@ -11,14 +12,29 @@ interface LeaderboardRPCEntry {
   display_name: string;
 }
 
-/** Lädt die Bartclicker-Bestenliste und aktualisiert sie alle 30 Sekunden. */
+const CACHE_KEY = 'bartclicker:leaderboard';
+
+/** Lädt die Bartclicker-Bestenliste und aktualisiert sie alle 30 Sekunden.
+ *  Offline wird die zuletzt geladene Liste angezeigt. */
 export function useBartclickerLeaderboard() {
-  const [entries, setEntries] = useState<BartclickerLeaderboardEntry[]>([]);
+  const [entries, setEntriesState] = useState<BartclickerLeaderboardEntry[]>(
+    () => readCache<BartclickerLeaderboardEntry[]>(CACHE_KEY)?.data ?? [],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const setEntries = (list: BartclickerLeaderboardEntry[]) => {
+      writeCache(CACHE_KEY, list);
+      setEntriesState(list);
+    };
+
     const loadLeaderboard = async () => {
+      // Offline: gecachte Liste stehen lassen, kein Fehler-Spam
+      if (isOffline()) {
+        setIsLoading(false);
+        return;
+      }
       try {
         setIsLoading(true);
         setError(null);

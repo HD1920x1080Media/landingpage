@@ -32,7 +32,8 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       // Service Worker für SPA-Routing Fallback registrieren
-      if ('serviceWorker' in navigator) {
+      // (nicht in der Android-App: dort liegen alle Dateien ohnehin lokal)
+      if ('serviceWorker' in navigator && !window.Capacitor) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/service-worker.js')
             .then((registration) => {
