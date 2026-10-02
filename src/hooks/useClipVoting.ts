@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/useAuth'
+import { isOffline, readCache, writeCache } from '../lib/offlineStore'
 import type {
   VotingRound,
   ClipWithVotes,
@@ -54,16 +55,29 @@ export function useClipVoting(): VotingState & {
     error: null,
   })
 
+  // Offline-Snapshot je User (userVote ist nutzerspezifisch)
+  const cacheKey = `clipvoting:state:${user?.id ?? 'anon'}`
+
   // Lädt alle für die UI benötigten Daten in einem Durchgang
   const fetchState = useCallback(async () => {
+    // Offline: letzten Stand anzeigen statt einer leeren Seite
+    const showCached = (): boolean => {
+      const cached = readCache<VotingState>(cacheKey)
+      if (!cached) return false
+      setState({ ...cached.data, loading: false, error: null })
+      return true
+    }
+    if (isOffline() && showCached()) return
+
     try {
       // 1 — Die letzten Voting-Runden laden, um daraus die aktuelle Phase abzuleiten
-      const { data: rounds } = await supabase
+      const { data: rounds, error: roundsError } = await supabase
         .schema('clipvoting')
         .from('voting_rounds')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(10)
+      if (roundsError) throw new Error(roundsError.message)
 
       const list = (rounds ?? []) as VotingRound[]
       const active    = list.find((r) => r.status === 'active')    ?? null
@@ -133,7 +147,7 @@ export function useClipVoting(): VotingState & {
 
       const yearlyWinners = (ywList ?? []) as YearlyWinner[]
 
-      setState({
+      const next: VotingState = {
         phase: phase === 'loading' ? 'no-round' : phase,
         round: displayRound,
         clips,
@@ -143,8 +157,11 @@ export function useClipVoting(): VotingState & {
         previousYearlyWinner: yearlyWinners[1] ?? null,
         loading: false,
         error: null,
-      })
+      }
+      writeCache(cacheKey, next)
+      setState(next)
     } catch (err) {
+      if (showCached()) return
       setState((prev) => ({
         ...prev,
         phase: 'no-round',
@@ -152,7 +169,7 @@ export function useClipVoting(): VotingState & {
         error: err instanceof Error ? err.message : 'unknown',
       }))
     }
-  }, [user])
+  }, [user, cacheKey])
 
   useEffect(() => {
     fetchState()
@@ -164,6 +181,7 @@ export function useClipVoting(): VotingState & {
     async (clipId: string): Promise<{ error?: string }> => {
       if (!state.round || state.round.status !== 'active')
         return { error: 'round_not_active' }
+      if (isOffline()) return { error: 'offline' }
 
       const { data, error } = await supabase.rpc('cast_vote', {
         p_round_id: state.round.id,
