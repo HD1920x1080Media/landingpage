@@ -159,7 +159,7 @@ services:
 
   # ── Meta (pg-meta) ────────────────────────────────────────────────────────
   meta:
-    image: supabase/postgres-meta:v0.99.0
+    image: supabase/postgres-meta:v0.100.0
     restart: unless-stopped
     depends_on:
       db:
