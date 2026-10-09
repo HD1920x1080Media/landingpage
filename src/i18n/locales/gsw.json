@@ -530,7 +530,8 @@
       "round_not_active": "D'Abstimmig isch nöd aktiv.",
       "already_voted": "Du häsch in dere Runde scho abgstimmt.",
       "clip_not_in_round": "Dä Clip ghört nöd zur aktuälle Runde.",
-      "round_not_found": "Runde nöd gfunde."
+      "round_not_found": "Runde nöd gfunde.",
+      "offline": "Du bisch offline. Abstimme gaht erscht wieder mit Internet."
     },
     "yearlyStandingsLive": "Clip vom Johr {{year}} – Zwischestand",
     "yearlyStandingsFinal": "Clip vom Johr {{year}} – Endstand",
@@ -835,5 +836,8 @@
     "title": "Account gsperrt",
     "message": "Dinge Account isch gsperrt worde. Wenn du Froge hesch, meld di bim Support."
   },
-  "home": "Startsiite"
+  "home": "Startsiite",
+  "offline": {
+    "banner": "Offline – du gsehsch gspeichereti Date. De Bartclicker speicheret lokal und synchronisiert automatisch, sobald du wieder online bisch."
+  }
 }

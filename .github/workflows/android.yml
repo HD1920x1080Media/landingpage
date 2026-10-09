@@ -1,0 +1,94 @@
+name: Android App
+
+# Baut die Android-App (Capacitor) als Play-Store-fähiges AAB + APK.
+# Signiert wird nur, wenn die Keystore-Secrets hinterlegt sind (siehe ANDROID.md).
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'android/**'
+      - 'src/**'
+      - 'public/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Web-Build + Capacitor-Sync
+        run: |
+          npm ci
+          npx vite build
+          npx cap sync android
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_TWITCH_CLIENT_ID: ${{ secrets.VITE_TWITCH_CLIENT_ID }}
+          VITE_CHANNEL_NAME: ${{ secrets.CHANNEL_NAME }}
+
+      - name: Version bestimmen
+        id: version
+        run: |
+          LATEST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | grep -vE '\-' | sort -V | tail -1)
+          echo "name=${LATEST_TAG#v}" >> "$GITHUB_OUTPUT"
+          # versionCode muss je Play-Store-Upload steigen → fortlaufende Run-Nummer
+          echo "code=$(( 100 + GITHUB_RUN_NUMBER ))" >> "$GITHUB_OUTPUT"
+
+      - name: Keystore bereitstellen
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 nicht gesetzt – Release-Build bleibt unsigniert."
+          fi
+
+      - name: Gradle Release-Build (AAB + APK)
+        working-directory: android
+        run: ./gradlew --no-daemon bundleRelease assembleRelease
+        env:
+          ANDROID_VERSION_CODE: ${{ steps.version.outputs.code }}
+          ANDROID_VERSION_NAME: ${{ steps.version.outputs.name || '1.0.0' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Artefakte hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-release-${{ steps.version.outputs.code }}
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/apk/release/*.apk

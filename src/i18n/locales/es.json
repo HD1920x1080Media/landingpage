@@ -544,7 +544,8 @@
       "round_not_active": "La votación no está activa.",
       "already_voted": "Ya has votado en esta ronda.",
       "clip_not_in_round": "Este clip no forma parte de la ronda actual.",
-      "round_not_found": "Ronda no encontrada."
+      "round_not_found": "Ronda no encontrada.",
+      "offline": "Estás sin conexión. Para votar necesitas conexión a internet."
     },
     "yearlyStandingsLive": "Clip del año {{year}} – resultados provisionales",
     "yearlyStandingsFinal": "Clip del año {{year}} – puntuación final",
@@ -852,5 +853,8 @@
     "title": "Cuenta bloqueada",
     "message": "Tu cuenta ha sido bloqueada. Si tiene alguna pregunta, comuníquese con el soporte."
   },
-  "home": "pagina de inicio"
+  "home": "pagina de inicio",
+  "offline": {
+    "banner": "Sin conexión: estás viendo datos guardados. Bartclicker guarda localmente y se sincroniza automáticamente al volver a conectarte."
+  }
 }
