@@ -113,7 +113,7 @@ services:
 
   # ── Kong (API Gateway) ────────────────────────────────────────────────────
   kong:
-    image: kong:3.9.3
+    image: kong:3.9.4
     restart: unless-stopped
     entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start'
     ports:
