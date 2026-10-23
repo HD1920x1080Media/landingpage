@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HD1920x1080</string>
+    <string name="title_activity_main">HD1920x1080</string>
+    <string name="package_name">de.hd1920x1080.app</string>
+    <string name="custom_url_scheme">de.hd1920x1080.app</string>
+</resources>

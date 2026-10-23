@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { isNativeApp } from './native'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -20,6 +21,13 @@ const validKey = supabaseAnonKey || 'placeholder'
 const noCacheFetch: typeof fetch = (input, init) =>
     fetch(input, { ...init, cache: 'no-store' })
 
+// In der Android-App kommt der Login per Deep-Link zurück: PKCE-Flow mit
+// manuellem Code-Tausch (siehe AuthContext). Im Browser bleibt alles wie gehabt.
+const native = isNativeApp()
+
 export const supabase = createClient(validUrl, validKey, {
   global: { fetch: noCacheFetch },
+  auth: native
+    ? { flowType: 'pkce', detectSessionInUrl: false, persistSession: true, autoRefreshToken: true }
+    : undefined,
 })

@@ -542,7 +542,8 @@
       "round_not_active": "Voting is not active.",
       "already_voted": "You have already voted in this round.",
       "clip_not_in_round": "This clip is not in the current round.",
-      "round_not_found": "Round not found."
+      "round_not_found": "Round not found.",
+      "offline": "You're offline. Voting requires an internet connection."
     },
     "yearlyStandingsLive": "Clip of the Year {{year}} – Live Standings",
     "yearlyStandingsFinal": "Clip of the Year {{year}} – Final Standings",
@@ -845,5 +846,8 @@
     "title": "Account banned",
     "message": "Your account has been banned. If you have questions, please contact support."
   },
-  "home": "Home"
+  "home": "Home",
+  "offline": {
+    "banner": "Offline – you're seeing saved data. Bartclicker saves locally and syncs automatically once you're back online."
+  }
 }

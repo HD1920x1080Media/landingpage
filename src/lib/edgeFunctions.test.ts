@@ -4,6 +4,8 @@ import { buildEdgeFunctionUrl, fetchCalendarText, lookupTwitchUserId } from './e
 // Supabase-Env explizit leeren: die Fallback-Tests dürfen nicht davon abhängen,
 // ob lokal eine .env mit VITE_SUPABASE_URL existiert.
 beforeEach(() => {
+  // Offline-Cache leeren, sonst liefert fetchCalendarText Snapshots früherer Tests
+  localStorage.clear()
   vi.stubEnv('VITE_SUPABASE_URL', '')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
 })
@@ -52,6 +54,15 @@ describe('fetchCalendarText (ohne Supabase-Env)', () => {
     await expect(
       fetchCalendarText('https://export.kalender.digital/x.ics', '/api/calendar.ics'),
     ).rejects.toThrow('HTTP 502')
+  })
+
+  it('liefert bei Netzwerkfehler den zuletzt geladenen Kalender aus dem Offline-Cache', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('BEGIN:VCALENDAR', { status: 200 })))
+    await fetchCalendarText('https://export.kalender.digital/x.ics', '/api/calendar.ics')
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const text = await fetchCalendarText('https://export.kalender.digital/x.ics', '/api/calendar.ics')
+    expect(text).toBe('BEGIN:VCALENDAR')
   })
 })
 

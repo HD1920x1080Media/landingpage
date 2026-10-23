@@ -5,6 +5,7 @@
  * Die reinen URL-Bau-Funktionen sind bewusst parameterisiert (statt direkt
  * import.meta.env zu lesen), damit sie testbar bleiben.
  */
+import { fetchWithOfflineCache } from './offlineStore'
 
 /** Baut die URL einer Edge Function; null wenn keine Supabase-URL konfiguriert ist. */
 export function buildEdgeFunctionUrl(
@@ -36,6 +37,14 @@ function edgeHeaders(anonKey: string): HeadersInit {
  * Build-Snapshot (`/api/calendar*.ics`).
  */
 export async function fetchCalendarText(liveIcsUrl: string, staticPath: string): Promise<string> {
+  // Letzten erfolgreich geladenen Kalender offline weiterverwenden
+  const { data } = await fetchWithOfflineCache(`calendar:${liveIcsUrl || staticPath}`, () =>
+    fetchCalendarTextOnline(liveIcsUrl, staticPath),
+  )
+  return data
+}
+
+async function fetchCalendarTextOnline(liveIcsUrl: string, staticPath: string): Promise<string> {
   const { url, anonKey } = supabaseEnv()
   const edgeUrl = buildEdgeFunctionUrl(url, 'calendar', { url: liveIcsUrl })
 
