@@ -10,7 +10,9 @@ FROM node:26-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (layer cache)
-COPY package.json package-lock.json ./
+# .npmrc muss mit: legacy-peer-deps=true, sonst verlangt npm ci Peer-Deps
+# (z. B. eslint für eslint-plugin-react-hooks), die nicht im Lockfile stehen.
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci
 
 # Copy source and build
