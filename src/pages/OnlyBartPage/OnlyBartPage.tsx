@@ -234,7 +234,7 @@ function PostCard({post, access, onDelete, onLikeChange}: {
 
     useEffect(() => {
         if (showComments) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
+            // oxlint-disable-next-line react-compiler/set-state-in-effect
             loadComments()
         }
     }, [showComments, loadComments])
@@ -603,7 +603,7 @@ export function OnlyBartPage() {
 
     useEffect(() => {
         if (access.canView && !showIntro) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
+            // oxlint-disable-next-line react-compiler/set-state-in-effect
             fetchPosts()
         }
     }, [access.canView, showIntro, fetchPosts])

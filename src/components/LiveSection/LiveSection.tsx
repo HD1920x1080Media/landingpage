@@ -58,7 +58,7 @@ export default function LiveSection() {
             cancelled = true
             clearInterval(interval)
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     /* ── Schritt 2: Twitch-SDK nur laden wenn live bestätigt ── */
