@@ -3,6 +3,8 @@ import {useLayoutEffect, lazy, Suspense} from 'react'
 import SettingsBar from './components/SettingsBar/SettingsBar.tsx'
 import CookieBanner from './components/CookieBanner/CookieBanner'
 import PageTracker from './components/PageTracker'
+import OfflineBanner from './components/OfflineBanner/OfflineBanner'
+import NativeAppShell from './components/NativeAppShell/NativeAppShell'
 import ProtectedRoute from './components/ProtectedRoute/ProtectedRoute'
 import ModeratorRoute from './components/ModeratorRoute/ModeratorRoute'
 import BroadcasterRoute from './components/BroadcasterRoute/BroadcasterRoute'
@@ -86,6 +88,8 @@ function App() {
 
     return (
         <BrowserRouter>
+            <NativeAppShell/>
+            <OfflineBanner/>
             <SettingsBar/>
             <PageTracker/>
             <Suspense fallback={null}>

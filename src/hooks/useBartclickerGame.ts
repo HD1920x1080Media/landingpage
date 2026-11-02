@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../context/useAuth';
 import { supabase } from '../lib/supabase';
+import { isOffline } from '../lib/offlineStore';
+import {
+  readGameSnapshot,
+  writeGameSnapshot,
+  markGameSnapshotSynced,
+  shouldPreferLocal,
+} from '../lib/bartclickerOffline';
 import type {
   BartclickerGameState,
   ShopItem,
@@ -166,6 +173,47 @@ const AVAILABLE_RELICS = [
   { id: 3, name: 'Zeitreisendes Bartöl', icon: '⏳', effect: 'offlineBonus' as const, value: 0.5, unlockCost: 200000000, description: '+50% Offline-Verdienst' },
 ];
 
+// Rohform eines gespeicherten Spielstands: Server-Zeile (numeric-Spalten kommen als
+// String) oder lokaler Snapshot (Zahlen).
+type StoredGameState = Omit<BartclickerGameState, 'energy' | 'total_ever'> & {
+  energy: number | string;
+  total_ever: number | string;
+};
+
+/** Lädt einen Spielstand über die validierende RPC hoch.
+ *  'ok' = gespeichert, 'rejected' = Server lehnt ab, 'failed' = Netz/Auth-Fehler. */
+async function pushStateToServer(state: BartclickerGameState): Promise<'ok' | 'rejected' | 'failed'> {
+  const { data, error } = await supabase.rpc('save_bartclicker_state', {
+    p_energy: state.energy,
+    p_total_ever: state.total_ever,
+    p_rebirth_count: state.rebirth_count,
+    p_shop_items: state.shop_items,
+    p_active_buffs: state.active_buffs,
+    p_active_debuffs: state.active_debuffs,
+    p_relics: state.relics,
+    p_offline_earning_upgrades: state.offline_earning_upgrades,
+    p_auto_click_buyer_enabled: state.auto_click_buyer_enabled,
+    p_auto_click_buyer_unlocked: state.auto_click_buyer_unlocked,
+    p_click_upgrade_buyer_enabled: state.click_upgrade_buyer_enabled,
+    p_click_upgrade_buyer_unlocked: state.click_upgrade_buyer_unlocked,
+    p_click_upgrade_buyer_items: state.click_upgrade_buyer_items,
+  });
+
+  if (error) {
+    console.error('Error saving game state:', error);
+    return 'failed';
+  }
+  const result = data as { success?: boolean; clamped?: boolean; error?: string } | null;
+  if (result?.error) {
+    console.error('Game state rejected by server:', result.error);
+    return 'rejected';
+  }
+  if (result?.clamped) {
+    console.warn('Game state growth was clamped by server validation.');
+  }
+  return 'ok';
+}
+
 /** Verwaltet den kompletten Bartclicker-Spielstand: Klicks, CPS, Shop, Buffs, Rebirths,
  *  Offline-Verdienst und Persistierung gegen Supabase. */
 export function useBartclickerGame() {
@@ -224,6 +272,9 @@ export function useBartclickerGame() {
       }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isLoadingRef = useRef(false);
+  // true, solange auf einem lokalen (noch nicht abgeglichenen) Offline-Stand gespielt wird
+  const offlineSessionRef = useRef(false);
+  const lastRejectReloadRef = useRef(0);
 
   // ── Anti-Autoclicker ──
   // Speichert Timestamps der letzten Klicks für Rate-Limiting und Regelmäßigkeitserkennung
@@ -298,6 +349,67 @@ export function useBartclickerGame() {
     return Math.max(1, power);
   }, [gameState]);
 
+  // Rohdaten (Server-Zeile oder lokaler Snapshot) in den Spielstand übernehmen und
+  // den Offline-Verdienst seit lastActiveMs gutschreiben.
+  const applyLoadedState = useCallback((data: StoredGameState, lastActiveMs: number | null) => {
+    let offlineEarningsAmount = 0;
+    let offlineEarningsSeconds = 0;
+    if (lastActiveMs) {
+      offlineEarningsSeconds = Math.min((Date.now() - lastActiveMs) / 1000, MAX_OFFLINE_SECONDS);
+
+      // Unter einer Minute Abwesenheit gibt es keinen Offline-Verdienst
+      if (offlineEarningsSeconds > 60) {
+        const savedCps = calculateCpsFromData(
+          (data.shop_items || []) as ShopItem[],
+          data.rebirth_count || 0,
+          (data.relics || []) as Relic[],
+        );
+
+        // Basis-Offline-Rate: 10 % des Online-CPS, +10 % je Offline-Upgrade
+        let offlineMultiplier = 0.1;
+        offlineMultiplier += (data.offline_earning_upgrades || 0) * 0.1;
+        (data.relics as Relic[] || []).forEach((relic) => {
+          if (relic.effect === 'offlineBonus') {
+            offlineMultiplier += relic.value || 0;
+          }
+        });
+
+        offlineEarningsAmount = Math.floor(savedCps * offlineEarningsSeconds * offlineMultiplier);
+      }
+    }
+
+    setGameState({
+      id: data.id,
+      user_id: data.user_id,
+      energy: (parseFloat(String(data.energy)) || 0) + offlineEarningsAmount,
+      total_ever: (parseFloat(String(data.total_ever)) || 0) + offlineEarningsAmount,
+      rebirth_count: data.rebirth_count || 0,
+      rebirth_multiplier: deriveRebirthMultiplier(data.rebirth_count || 0),
+      shop_items: (data.shop_items || []).map((item: ShopItem) => ({
+        ...item,
+        cost: item.cost || INITIAL_SHOP_ITEMS.find(i => i.id === item.id)?.cost || 0,
+      })),
+      active_buffs: (data.active_buffs || []).filter((buff: Buff) => buff.endTime && buff.endTime > Date.now()),
+      active_debuffs: (data.active_debuffs || []).filter((debuff: { endTime: number }) => debuff.endTime && debuff.endTime > Date.now()),
+      relics: data.relics || [],
+      offline_earning_upgrades: data.offline_earning_upgrades || 0,
+      auto_click_buyer_enabled: data.auto_click_buyer_enabled || false,
+      click_upgrade_buyer_enabled: data.click_upgrade_buyer_enabled || false,
+      click_upgrade_buyer_items: data.click_upgrade_buyer_items || [],
+      auto_click_buyer_unlocked: data.auto_click_buyer_unlocked || false,
+      click_upgrade_buyer_unlocked: data.click_upgrade_buyer_unlocked || false,
+      last_updated: data.last_updated,
+      created_at: data.created_at,
+    });
+
+    if (offlineEarningsAmount > 0) {
+      setOfflineEarnings({
+        amount: offlineEarningsAmount,
+        seconds: Math.floor(offlineEarningsSeconds),
+      });
+    }
+  }, []);
+
   const loadGameState = useCallback(async () => {
     if (!userId) {
       return;
@@ -317,13 +429,26 @@ export function useBartclickerGame() {
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
+    // Lokaler Snapshot: Grundlage fürs Offline-Spielen und Quelle für noch nicht
+    // hochgeladenen Fortschritt.
+    const local = readGameSnapshot(userId);
+
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('bartclicker_scores')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
+
+      let data: StoredGameState | null = null;
+      let error: { code?: string; message?: string } | null = null;
+      if (isOffline()) {
+        error = { message: 'offline' };
+      } else {
+        const result = await supabase
+          .from('bartclicker_scores')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        data = result.data as StoredGameState | null;
+        error = result.error;
+      }
 
       if (signal.aborted) {
         isLoadingRef.current = false;
@@ -356,31 +481,26 @@ export function useBartclickerGame() {
           // Schreiben läuft über die validierende RPC (Anti-Cheat) — direkte
           // Inserts auf bartclicker_scores sind per RLS gesperrt.
           try {
-            await supabase.rpc('save_bartclicker_state', {
-              p_energy: 0,
-              p_total_ever: 0,
-              p_rebirth_count: 0,
-              p_shop_items: INITIAL_SHOP_ITEMS,
-              p_active_buffs: [],
-              p_active_debuffs: [],
-              p_relics: [],
-              p_offline_earning_upgrades: 0,
-              p_auto_click_buyer_enabled: false,
-              p_auto_click_buyer_unlocked: false,
-              p_click_upgrade_buyer_enabled: false,
-              p_click_upgrade_buyer_unlocked: false,
-              p_click_upgrade_buyer_items: [],
-            });
+            await pushStateToServer(initialState);
           } catch (upsertErr) {
             console.error('Failed to create initial game state:', upsertErr);
           }
 
           if (!signal.aborted) {
+            writeGameSnapshot(userId, initialState, false);
             setGameState(initialState);
           }
+        } else if (local) {
+          // Offline bzw. Server nicht erreichbar: mit dem lokalen Stand weiterspielen.
+          // Er bleibt "dirty" und wird beim nächsten erfolgreichen Save hochgeladen.
+          console.warn('Bartclicker: Server nicht erreichbar, nutze lokalen Spielstand.', error);
+          if (!signal.aborted) {
+            applyLoadedState(local.state, local.savedAt);
+            offlineSessionRef.current = true;
+          }
         } else {
-          // Andere Fehler (RLS, Netzwerk): State NICHT setzen, damit kein leerer
-          // Spielstand einen vorhandenen überschreibt – UI bleibt im Ladezustand.
+          // Andere Fehler (RLS, Netzwerk) ohne lokalen Stand: State NICHT setzen, damit
+          // kein leerer Spielstand einen vorhandenen überschreibt.
           console.error('Error loading game state:', error);
 
           if (!signal.aborted) {
@@ -390,75 +510,53 @@ export function useBartclickerGame() {
       } else if (data) {
         // Leeres data-Objekt würde einen echten Spielstand zerstören – darum der Längen-Check
         if (!signal.aborted && data && Object.keys(data).length > 0) {
-          let offlineEarningsAmount = 0;
-          let offlineEarningsSeconds = 0;
-          if (data.last_updated) {
-            const lastUpdated = new Date(data.last_updated).getTime();
-            const now = Date.now();
-            offlineEarningsSeconds = Math.min((now - lastUpdated) / 1000, MAX_OFFLINE_SECONDS);
-
-            // Unter einer Minute Abwesenheit gibt es keinen Offline-Verdienst
-            if (offlineEarningsSeconds > 60) {
-              const savedCps = calculateCpsFromData(
-                (data.shop_items || []) as ShopItem[],
-                data.rebirth_count || 0,
-                (data.relics || []) as Relic[],
-              );
-
-              // Basis-Offline-Rate: 10 % des Online-CPS, +10 % je Offline-Upgrade
-              let offlineMultiplier = 0.1;
-              offlineMultiplier += (data.offline_earning_upgrades || 0) * 0.1;
-              (data.relics as Relic[] || []).forEach((relic) => {
-                if (relic.effect === 'offlineBonus') {
-                  offlineMultiplier += relic.value || 0;
-                }
-              });
-
-              offlineEarningsAmount = Math.floor(savedCps * offlineEarningsSeconds * offlineMultiplier);
-            }
-          }
-
-          setGameState({
-            id: data.id,
-            user_id: data.user_id,
-            energy: (parseFloat(data.energy) || 0) + offlineEarningsAmount,
-            total_ever: (parseFloat(data.total_ever) || 0) + offlineEarningsAmount,
-            rebirth_count: data.rebirth_count || 0,
-            rebirth_multiplier: deriveRebirthMultiplier(data.rebirth_count || 0),
-            shop_items: (data.shop_items || []).map((item: ShopItem) => ({
-              ...item,
-              cost: item.cost || INITIAL_SHOP_ITEMS.find(i => i.id === item.id)?.cost || 0,
-            })),
-            active_buffs: (data.active_buffs || []).filter((buff: Buff) => buff.endTime && buff.endTime > Date.now()),
-            active_debuffs: (data.active_debuffs || []).filter((debuff: { endTime: number }) => debuff.endTime && debuff.endTime > Date.now()),
-            relics: data.relics || [],
-            offline_earning_upgrades: data.offline_earning_upgrades || 0,
-            auto_click_buyer_enabled: data.auto_click_buyer_enabled || false,
-            click_upgrade_buyer_enabled: data.click_upgrade_buyer_enabled || false,
-            click_upgrade_buyer_items: data.click_upgrade_buyer_items || [],
-            auto_click_buyer_unlocked: data.auto_click_buyer_unlocked || false,
-            click_upgrade_buyer_unlocked: data.click_upgrade_buyer_unlocked || false,
-            last_updated: data.last_updated,
-            created_at: data.created_at,
-          });
-
-          if (offlineEarningsAmount > 0) {
-            setOfflineEarnings({
-              amount: offlineEarningsAmount,
-              seconds: Math.floor(offlineEarningsSeconds),
+          if (local && shouldPreferLocal(local, data)) {
+            // Offline erspielter Fortschritt ist neuer als der Server → lokal übernehmen
+            // und sofort hochladen.
+            applyLoadedState({ ...local.state, id: data.id, user_id: data.user_id }, local.savedAt);
+            void pushStateToServer(local.state).then((outcome) => {
+              if (outcome === 'ok' || outcome === 'rejected') markGameSnapshotSynced(userId, local.savedAt);
             });
+          } else {
+            applyLoadedState(data, data.last_updated ? new Date(data.last_updated).getTime() : null);
+            // numeric-Spalten kommen als String → als Zahl sichern, sonst vergleicht
+            // shouldPreferLocal später Strings
+            writeGameSnapshot(userId, {
+              ...(data as BartclickerGameState),
+              energy: parseFloat(String(data.energy)) || 0,
+              total_ever: parseFloat(String(data.total_ever)) || 0,
+            }, false);
           }
+          offlineSessionRef.current = false;
         }
       }
     } catch (err) {
-      // State bei Fehler bewusst unverändert lassen, um keinen Spielstand zu verlieren
+      // Netzwerk-Exception: falls vorhanden mit lokalem Stand weiterspielen,
+      // sonst State unverändert lassen, um keinen Spielstand zu verlieren.
       console.error('Failed to load game state:', err);
+      if (local && !signal.aborted) {
+        applyLoadedState(local.state, local.savedAt);
+        offlineSessionRef.current = true;
+      }
     } finally {
       if (!signal.aborted) {
         setIsLoading(false);
       }
       isLoadingRef.current = false;
     }
+  }, [userId, applyLoadedState]);
+
+  // Aktuellen Spielstand für Event-Handler (visibilitychange, online) griffbereit halten
+  const gameStateRef = useRef(gameState);
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
+  // Sichert den Spielstand lokal (Offline-Fallback). Liefert den Zeitstempel oder null.
+  const persistLocally = useCallback((): number | null => {
+    const state = gameStateRef.current;
+    if (!userId || isLoadingRef.current || state.user_id !== userId) return null;
+    return writeGameSnapshot(userId, state, true);
   }, [userId]);
 
   const saveGameState = useCallback(async () => {
@@ -478,39 +576,34 @@ export function useBartclickerGame() {
         return;
       }
 
+      // Immer zuerst lokal sichern — offline ist das der einzige Speicherort.
+      const savedAt = writeGameSnapshot(userId, gameState, true);
+      if (isOffline()) {
+        return;
+      }
+
       // Anti-Cheat: Speichern läuft über die serverseitig validierende RPC
       // (Monotonie, Bezahlbarkeit, Wachstumsgrenze) — direkte Upserts auf
       // bartclicker_scores sind per RLS gesperrt. last_updated setzt der Server.
-      const { data, error } = await supabase.rpc('save_bartclicker_state', {
-        p_energy: gameState.energy,
-        p_total_ever: gameState.total_ever,
-        p_rebirth_count: gameState.rebirth_count,
-        p_shop_items: gameState.shop_items,
-        p_active_buffs: gameState.active_buffs,
-        p_active_debuffs: gameState.active_debuffs,
-        p_relics: gameState.relics,
-        p_offline_earning_upgrades: gameState.offline_earning_upgrades,
-        p_auto_click_buyer_enabled: gameState.auto_click_buyer_enabled,
-        p_auto_click_buyer_unlocked: gameState.auto_click_buyer_unlocked,
-        p_click_upgrade_buyer_enabled: gameState.click_upgrade_buyer_enabled,
-        p_click_upgrade_buyer_unlocked: gameState.click_upgrade_buyer_unlocked,
-        p_click_upgrade_buyer_items: gameState.click_upgrade_buyer_items,
-      });
-
-      if (error) {
-        console.error('Error saving game state:', error);
-      } else {
-        const result = data as { success?: boolean; clamped?: boolean; error?: string } | null;
-        if (result?.error) {
-          console.error('Game state rejected by server:', result.error);
-        } else if (result?.clamped) {
-          console.warn('Game state growth was clamped by server validation.');
+      const outcome = await pushStateToServer(gameState);
+      if (outcome === 'ok') {
+        markGameSnapshotSynced(userId, savedAt);
+        if (offlineSessionRef.current) {
+          offlineSessionRef.current = false;
+        }
+      } else if (outcome === 'rejected') {
+        // Server lehnt den Stand ab (z. B. auf anderem Gerät weitergespielt) → nicht
+        // endlos erneut senden, sondern den Server-Stand neu laden.
+        markGameSnapshotSynced(userId, savedAt);
+        if (Date.now() - lastRejectReloadRef.current > 60_000) {
+          lastRejectReloadRef.current = Date.now();
+          void loadGameState();
         }
       }
     } catch (err) {
       console.error('Failed to save game state:', err);
     }
-  }, [userId, gameState]);
+  }, [userId, gameState, loadGameState]);
 
   // isAutoClick=true umgeht die Anti-Autoclicker-Prüfung – der eigene Autobuyer
   // soll nicht als Cheat erkannt werden.
@@ -812,6 +905,47 @@ export function useBartclickerGame() {
     }, 0);
     return () => clearTimeout(timeout);
   }, [loadGameState, userId]);
+
+  // Lokale Sicherung alle 2 Sekunden, damit beim Schließen der App offline
+  // praktisch kein Fortschritt verloren geht.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      persistLocally();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [persistLocally]);
+
+  // App geht in den Hintergrund / Tab wird geschlossen → sofort sichern
+  const saveGameStateRef = useRef(saveGameState);
+  useEffect(() => {
+    saveGameStateRef.current = saveGameState;
+  }, [saveGameState]);
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') {
+        persistLocally();
+        void saveGameStateRef.current();
+      }
+    };
+    const onPageHide = () => persistLocally();
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [persistLocally]);
+
+  // Wieder online → lokalen Stand sichern und mit dem Server abgleichen
+  // (loadGameState bevorzugt den lokalen Stand und lädt ihn hoch, wenn er neuer ist).
+  useEffect(() => {
+    const onOnline = () => {
+      persistLocally();
+      void loadGameState();
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [persistLocally, loadGameState]);
 
   // Periodisches Auto-Save alle 10 Sekunden
   useEffect(() => {

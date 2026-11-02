@@ -544,7 +544,8 @@
       "round_not_active": "Die Abstimmung ist nicht aktiv.",
       "already_voted": "Du hast in dieser Runde bereits abgestimmt.",
       "clip_not_in_round": "Dieser Clip gehört nicht zur aktuellen Runde.",
-      "round_not_found": "Runde nicht gefunden."
+      "round_not_found": "Runde nicht gefunden.",
+      "offline": "Du bist offline. Abstimmen geht erst wieder mit Internetverbindung."
     },
     "yearlyStandingsLive": "Clip des Jahres {{year}} – Zwischenstand",
     "yearlyStandingsFinal": "Clip des Jahres {{year}} – Endstand",
@@ -852,5 +853,8 @@
     "title": "Account gesperrt",
     "message": "Dein Account wurde gesperrt. Bei Fragen wende dich bitte an den Support."
   },
-  "home": "Startseite"
+  "home": "Startseite",
+  "offline": {
+    "banner": "Offline – du siehst gespeicherte Daten. Der Bartclicker speichert lokal und synchronisiert automatisch, sobald du wieder online bist."
+  }
 }

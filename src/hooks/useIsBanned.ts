@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/useAuth';
 import { supabase } from '../lib/supabase';
+import { isOffline, readCache, writeCache } from '../lib/offlineStore';
 
 /** Prüft anhand der Twitch-ID des eingeloggten Users, ob dessen Account gesperrt ist. */
 export function useIsBanned() {
@@ -24,13 +25,25 @@ export function useIsBanned() {
         setLoading(false);
         return;
       }
-      const { data } = await supabase
+      // Offline den zuletzt bekannten Ban-Status verwenden, damit eine Sperre
+      // nicht durch Flugmodus umgangen werden kann.
+      const cacheKey = `banned:${twitchId}`;
+      if (isOffline()) {
+        if (!cancelled) {
+          setIsBanned(readCache<boolean>(cacheKey)?.data ?? false);
+          setLoading(false);
+        }
+        return;
+      }
+      const { data, error } = await supabase
         .from('banned_accounts')
         .select('twitch_user_id')
         .eq('twitch_user_id', twitchId)
         .maybeSingle();
+      const banned = error ? (readCache<boolean>(cacheKey)?.data ?? false) : !!data;
+      if (!error) writeCache(cacheKey, banned);
       if (!cancelled) {
-        setIsBanned(!!data);
+        setIsBanned(banned);
         setLoading(false);
       }
     }

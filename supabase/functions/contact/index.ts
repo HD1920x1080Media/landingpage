@@ -27,6 +27,8 @@ import nodemailer from 'npm:nodemailer@^9'
 const ALLOWED_ORIGINS = [
   'https://hd1920x1080.de',
   'https://www.hd1920x1080.de',
+  // Android-App (Capacitor, androidScheme 'https')
+  'https://localhost',
 ]
 
 // GMX-Postausgangsserver. Port 465 = implizites TLS (SMTPS).

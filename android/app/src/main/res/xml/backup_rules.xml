@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 und älter: gleiche Backup-Regeln wie data_extraction_rules.xml -->
+<full-backup-content>
+    <include domain="root" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="database" path="." />
+    <include domain="file" path="." />
+    <exclude domain="root" path="app_webview/Default/Cache" />
+    <exclude domain="root" path="app_webview/Default/Code Cache" />
+</full-backup-content>
