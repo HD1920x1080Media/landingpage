@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "group:all"
   ],
   "timezone": "Europe/Berlin",
   "schedule": ["at any time"],
@@ -11,17 +12,18 @@
   "assignees": ["Sommer2019"],
   "reviewers": ["Sommer2019"],
   "postUpdateOptions": ["npmDedupe"],
+  "separateMajorMinor": false,
+  "separateMultipleMajor": false,
+  "separateMinorPatch": false,
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "description": "Alle Updates (inkl. Major) in einem PR bündeln und automatisch mergen, sobald alle Checks grün sind. platformAutomerge=false: Renovate prüft selbst, dass jeder Check erfolgreich ist, statt GitHub-Auto-Merge (das ohne Branch-Protection sofort mergen würde).",
+      "matchPackageNames": ["*"],
+      "groupName": "all dependencies",
+      "groupSlug": "all",
       "automerge": true,
       "automergeType": "pr",
-      "platformAutomerge": true
-    },
-    {
-      "matchUpdateTypes": ["major"],
-      "automerge": false
+      "platformAutomerge": false
     }
-  ],
-  "separateMinorPatch": true
+  ]
 }
