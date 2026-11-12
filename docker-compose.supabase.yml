@@ -10,7 +10,7 @@ version: "3.9"
 services:
   # ── PostgreSQL ────────────────────────────────────────────────────────────
   db:
-    image: supabase/postgres:17.11.0.008
+    image: supabase/postgres:17.11.0.019
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
@@ -88,7 +88,7 @@ services:
 
   # ── Storage ───────────────────────────────────────────────────────────────
   storage:
-    image: supabase/storage-api:v1.84.36
+    image: supabase/storage-api:v1.94.0
     restart: unless-stopped
     depends_on:
       db:
